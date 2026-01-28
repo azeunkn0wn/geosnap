@@ -6,7 +6,8 @@ A Flutter mobile application that captures photos and automatically embeds GPS c
 
 - **Camera Capture**: Take photos directly from the app using your device camera
 - **GPS Embedding**: Automatically embeds GPS coordinates (latitude, longitude, altitude) into photo EXIF metadata
-- **Permission Management**: Intelligent handling of camera and location permissions
+- **Gallery Storage**: Photos saved to Pictures/GeoSnap folder (Android) - accessible in Gallery app and file managers
+- **Permission Management**: Intelligent handling of camera, location, and storage permissions
 - **Settings Redirect**: If location permission is permanently denied, prompts user to open device settings
 - **Photo Gallery**: View all captured photos with their GPS coordinates and timestamps
 - **Real-time Location**: Displays current GPS coordinates while capturing
@@ -57,7 +58,12 @@ The app requires:
 
 ### Steps
 
-1. Clone or download this repository
+1. Clone this repository:
+
+```bash
+git clone https://github.com/azeunkn0wn/geosnap.git
+cd geosnap
+```
 
 1. Install dependencies:
 
@@ -83,33 +89,18 @@ flutter build apk --release
 flutter build ios --release
 ```
 
-## Project Structure
-
-```text
-lib/
-  └── main.dart              # Main application code
-
-android/
-  └── app/
-      └── src/main/
-          └── AndroidManifest.xml    # Android permissions
-
-ios/
-  └── Runner/
-      └── Info.plist         # iOS permissions
-```
-
 ## Dependencies
 
 | Package | Version | Purpose |
 | ------- | ------- | ------- |
 | `image_picker` | ^1.0.7 | Camera access and image capture |
-| `geolocator` | ^11.0.0 | GPS location services |
-| `permission_handler` | ^11.3.0 | Runtime permission management |
-| `native_exif` | ^0.6.0 | Write GPS data to image EXIF metadata |
+| `geolocator` | ^14.0.2 | GPS location services |
+| `permission_handler` | ^12.0.1 | Runtime permission management |
+| `native_exif` | ^0.7.0 | Write GPS data to image EXIF metadata |
+| `gal` | ^2.3.0 | Save images to device gallery/Photos app |
 | `path_provider` | ^2.1.2 | Access device directories |
 | `path` | ^1.9.0 | Path manipulation utilities |
-| `intl` | ^0.19.0 | Date/time formatting |
+| `intl` | ^0.20.2 | Date/time formatting |
 
 ## How It Works
 
@@ -175,32 +166,30 @@ A dialog appears with two options:
 
 ## Storage Location
 
-Photos are saved to:
+Photos are automatically saved to your device's native gallery using the `gal` package:
 
-- **Android**: `/data/data/com.aze.geosnap/files/GeoSnap/`
-- **iOS**: App Documents directory
+- **Android**: Saved to Pictures folder in the "GeoSnap" album (accessible via Gallery app and file managers)
+- **iOS**: Saved to Photos app in the "GeoSnap" album
 
 File naming format: `GeoSnap_YYYYMMDD_HHMMSS.jpg`
+
+**Note**: Photos are immediately visible in your device's Gallery/Photos app without any additional steps. They can be easily shared, backed up via cloud services (Google Photos, iCloud), or managed through any file manager or gallery app.
 
 ## Future Enhancements
 
 Potential features for future versions:
 
 - Share photos with location data
-- Export to gallery/external storage
 - View photos on map
 - Filter photos by location/date
 - Delete individual photos
 - Location history tracking
 - Batch EXIF editing
+- Cloud backup integration
 
 ## License
 
 This project is available for personal and commercial use.
-
-## Author
-
-Created by AzE
 
 ## Support
 

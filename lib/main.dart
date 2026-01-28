@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:gal/gal.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
@@ -279,26 +280,24 @@ class _GeoSnapHomeState extends State<GeoSnapHome> {
 
   Future<File?> _saveImageWithLocation(XFile image, Position position) async {
     try {
-      // Get app documents directory
-      final directory = await getApplicationDocumentsDirectory();
-      final geoSnapDir = Directory('${directory.path}/GeoSnap');
-
-      if (!await geoSnapDir.exists()) {
-        await geoSnapDir.create(recursive: true);
-      }
-
-      // Create unique filename with timestamp
+      // Create temporary file with EXIF data in app's temp directory
+      final tempDir = await getTemporaryDirectory();
       final timestamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
       final fileName = 'GeoSnap_$timestamp.jpg';
-      final savedPath = path.join(geoSnapDir.path, fileName);
+      final tempPath = path.join(tempDir.path, fileName);
 
-      // Copy image to new location
-      final savedFile = await File(image.path).copy(savedPath);
+      // Copy image to temp location
+      final tempFile = await File(image.path).copy(tempPath);
 
       // Write EXIF data with GPS coordinates
-      await _writeExifData(savedFile.path, position);
+      await _writeExifData(tempFile.path, position);
 
-      return savedFile;
+      // Save to gallery using gal package (handles permissions automatically)
+      await Gal.putImage(tempFile.path, album: 'GeoSnap');
+
+      // Return the temp file for display in the app
+      // Note: The image is now also saved to the device gallery
+      return tempFile;
     } catch (e) {
       _showSnackBar('Error saving image: $e');
       return null;
