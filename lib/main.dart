@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -43,11 +44,61 @@ class _GeoSnapHomeState extends State<GeoSnapHome> {
   bool _isLoading = false;
   String? _statusMessage;
   final List<CapturedPhoto> _capturedPhotos = [];
+  StreamSubscription<Position>? _positionStreamSubscription;
 
   @override
   void initState() {
     super.initState();
     _checkPermissions();
+    _startLocationTracking();
+  }
+
+  @override
+  void dispose() {
+    _positionStreamSubscription?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _startLocationTracking() async {
+    final hasPermission = await _checkLocationPermission();
+    if (!hasPermission) return;
+
+    // Get initial position
+    try {
+      _currentPosition = await Geolocator.getLastKnownPosition() ??
+          await Geolocator.getCurrentPosition(
+            locationSettings: const LocationSettings(
+              accuracy: LocationAccuracy.medium,
+              timeLimit: Duration(seconds: 5),
+            ),
+          );
+
+      if (mounted) {
+        setState(() {
+          _statusMessage = 'Location ready';
+        });
+      }
+    } catch (e) {
+      debugPrint('Error getting initial position: $e');
+    }
+
+    // Start listening to position updates
+    const locationSettings = LocationSettings(
+      accuracy: LocationAccuracy.medium,
+      distanceFilter: 10, // Update when user moves 10 meters
+    );
+
+    _positionStreamSubscription =
+        Geolocator.getPositionStream(locationSettings: locationSettings)
+            .listen((Position position) {
+      if (mounted) {
+        setState(() {
+          _currentPosition = position;
+        });
+      }
+    }, onError: (error) {
+      debugPrint('Location stream error: $error');
+    });
   }
 
   Future<void> _checkPermissions() async {
@@ -171,17 +222,32 @@ class _GeoSnapHomeState extends State<GeoSnapHome> {
         _statusMessage = 'Getting location...';
       });
 
-      final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          timeLimit: Duration(seconds: 15),
-        ),
-      );
+      // Try to get last known position first (instant)
+      Position? position = await Geolocator.getLastKnownPosition();
+
+      // Check if cached position is too old (older than 2 minutes) or doesn't exist
+      final shouldRefresh = position == null ||
+          DateTime.now().difference(position.timestamp).inMinutes > 2;
+
+      if (shouldRefresh) {
+        // Get fresh current position
+        position = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.medium,
+            timeLimit: Duration(seconds: 5),
+          ),
+        );
+      }
 
       return position;
     } catch (e) {
-      _showSnackBar('Error getting location: $e');
-      return null;
+      // If current position fails, try last known as fallback
+      try {
+        return await Geolocator.getLastKnownPosition();
+      } catch (_) {
+        _showSnackBar('Error getting location: $e');
+        return null;
+      }
     }
   }
 
@@ -210,26 +276,19 @@ class _GeoSnapHomeState extends State<GeoSnapHome> {
   }
 
   Future<void> _captureImage() async {
+    // Check if location is available
+    if (_currentPosition == null) {
+      _showSnackBar('Location not available yet. Please wait...');
+      return;
+    }
+
     setState(() {
       _isLoading = true;
-      _statusMessage = 'Preparing camera...';
+      _statusMessage = 'Opening camera...';
     });
 
     try {
-      // Get location first
-      final position = await _getCurrentLocation();
-      if (position == null) {
-        setState(() {
-          _isLoading = false;
-          _statusMessage = 'Could not get location';
-        });
-        return;
-      }
-
-      setState(() {
-        _currentPosition = position;
-        _statusMessage = 'Opening camera...';
-      });
+      final position = _currentPosition!;
 
       // Capture image
       final XFile? image = await _picker.pickImage(
@@ -326,17 +385,13 @@ class _GeoSnapHomeState extends State<GeoSnapHome> {
     try {
       final exif = await Exif.fromPath(imagePath);
 
-      final now = DateTime.now().toUtc();
       final gpsData = {
-        'GPSLatitude': _convertToExifGps(position.latitude.abs()),
+        'GPSLatitude': position.latitude.abs().toString(),
         'GPSLatitudeRef': position.latitude >= 0 ? 'N' : 'S',
-        'GPSLongitude': _convertToExifGps(position.longitude.abs()),
+        'GPSLongitude': position.longitude.abs().toString(),
         'GPSLongitudeRef': position.longitude >= 0 ? 'E' : 'W',
         'GPSAltitude': position.altitude.toString(),
         'GPSAltitudeRef': position.altitude >= 0 ? '0' : '1',
-        'GPSTimeStamp': '${now.hour}/1,${now.minute}/1,${now.second}/1',
-        'GPSDateStamp':
-            '${now.year}:${now.month.toString().padLeft(2, '0')}:${now.day.toString().padLeft(2, '0')}',
       };
 
       debugPrint('Writing GPS data: $gpsData');
@@ -356,16 +411,6 @@ class _GeoSnapHomeState extends State<GeoSnapHome> {
       debugPrint('Error writing EXIF data: $e');
       rethrow;
     }
-  }
-
-  String _convertToExifGps(double coordinate) {
-    final degrees = coordinate.floor();
-    final minutesFloat = (coordinate - degrees) * 60;
-    final minutes = minutesFloat.floor();
-    final seconds = (minutesFloat - minutes) * 60;
-    final secondsInt = (seconds * 1000000).round();
-
-    return '$degrees/1, $minutes/1, $secondsInt/1000000';
   }
 
   void _showSnackBar(String message) {
