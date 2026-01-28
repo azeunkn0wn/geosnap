@@ -282,6 +282,16 @@ class _GeoSnapHomeState extends State<GeoSnapHome> {
 
   Future<File?> _saveImageWithLocation(XFile image, Position position) async {
     try {
+      // Request photos permission for Android 13+
+      if (Platform.isAndroid) {
+        final photosPermission = await Permission.photos.request();
+        if (!photosPermission.isGranted) {
+          _showSnackBar(
+            'Photos permission denied. Image saved to app folder only.',
+          );
+        }
+      }
+
       // Create temporary file with EXIF data in app's temp directory
       final tempDir = await getTemporaryDirectory();
       final timestamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
@@ -294,8 +304,14 @@ class _GeoSnapHomeState extends State<GeoSnapHome> {
       // Write EXIF data with GPS coordinates
       await _writeExifData(tempFile.path, position);
 
-      // Save to gallery using gal package (handles permissions automatically)
-      await Gal.putImage(tempFile.path, album: 'GeoSnap');
+      // Save to gallery using gal package
+      try {
+        await Gal.putImage(tempFile.path, album: 'GeoSnap');
+        debugPrint('Image saved to gallery successfully');
+      } catch (galError) {
+        debugPrint('Error saving to gallery: $galError');
+        _showSnackBar('Photo saved locally. Gallery save failed: $galError');
+      }
 
       // Return the temp file for display in the app
       // Note: The image is now also saved to the device gallery
@@ -310,19 +326,35 @@ class _GeoSnapHomeState extends State<GeoSnapHome> {
     try {
       final exif = await Exif.fromPath(imagePath);
 
-      // Set GPS coordinates
-      await exif.writeAttributes({
+      final now = DateTime.now().toUtc();
+      final gpsData = {
         'GPSLatitude': _convertToExifGps(position.latitude.abs()),
         'GPSLatitudeRef': position.latitude >= 0 ? 'N' : 'S',
         'GPSLongitude': _convertToExifGps(position.longitude.abs()),
         'GPSLongitudeRef': position.longitude >= 0 ? 'E' : 'W',
         'GPSAltitude': position.altitude.toString(),
         'GPSAltitudeRef': position.altitude >= 0 ? '0' : '1',
-      });
+        'GPSTimeStamp': '${now.hour}/1,${now.minute}/1,${now.second}/1',
+        'GPSDateStamp':
+            '${now.year}:${now.month.toString().padLeft(2, '0')}:${now.day.toString().padLeft(2, '0')}',
+      };
 
+      debugPrint('Writing GPS data: $gpsData');
+
+      // Set GPS coordinates
+      await exif.writeAttributes(gpsData);
       await exif.close();
+
+      // Verify data was written
+      final verifyExif = await Exif.fromPath(imagePath);
+      final attributes = await verifyExif.getAttributes();
+      debugPrint(
+        'Verified EXIF data: ${attributes?['GPSLatitude']}, ${attributes?['GPSLongitude']}',
+      );
+      await verifyExif.close();
     } catch (e) {
       debugPrint('Error writing EXIF data: $e');
+      rethrow;
     }
   }
 
@@ -331,17 +363,15 @@ class _GeoSnapHomeState extends State<GeoSnapHome> {
     final minutesFloat = (coordinate - degrees) * 60;
     final minutes = minutesFloat.floor();
     final seconds = (minutesFloat - minutes) * 60;
+    final secondsInt = (seconds * 1000000).round();
 
-    return '$degrees/1,$minutes/1,${(seconds * 10000).round()}/10000';
+    return '$degrees/1, $minutes/1, $secondsInt/1000000';
   }
 
   void _showSnackBar(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        duration: const Duration(seconds: 3),
-      ),
+      SnackBar(content: Text(message), duration: const Duration(seconds: 3)),
     );
   }
 
@@ -439,7 +469,8 @@ class _GeoSnapHomeState extends State<GeoSnapHome> {
                         const SizedBox(height: 16),
                         Text(
                           'No photos yet',
-                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(
                                 color: Theme.of(context).colorScheme.outline,
                               ),
                         ),
@@ -447,7 +478,8 @@ class _GeoSnapHomeState extends State<GeoSnapHome> {
                         Text(
                           'Tap the camera button to capture\na photo with GPS coordinates',
                           textAlign: TextAlign.center,
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
                                 color: Theme.of(context).colorScheme.outline,
                               ),
                         ),
@@ -516,7 +548,9 @@ class _GeoSnapHomeState extends State<GeoSnapHome> {
                     const Icon(Icons.access_time, size: 16, color: Colors.grey),
                     const SizedBox(width: 4),
                     Text(
-                      DateFormat('MMM dd, yyyy HH:mm:ss').format(photo.timestamp),
+                      DateFormat(
+                        'MMM dd, yyyy HH:mm:ss',
+                      ).format(photo.timestamp),
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ],
